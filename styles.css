@@ -1,99 +1,52 @@
 :root{
-  --bg:#0f172a; --card:#111827; --ink:#e5e7eb; --ink-dim:#a3b2c7;
-  --ink-strong:#cdd5df; --ring:#f1f5f9;
+  --bg:#ffffff; --card:#ffffff; --ink:#0b1222; --ink-dim:#475569; --ink-strong:#0f172a; --ring:#334155;
 }
+
 *{box-sizing:border-box}
 html,body{height:100%}
-body{
-  margin:0; background:var(--bg); color:var(--ink);
-  font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial;
-}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial}
 .page{max-width:1200px;margin:0 auto;padding:24px}
-.header h1{font-size:18px;margin:0 0 16px;color:#fff}
+.header h1{font-size:18px;margin:0 0 16px;color:var(--ink-strong)}
 
 .card{
-  background:var(--card); border:1px solid #0b1222; border-radius:12px;
-  padding:16px; box-shadow:0 1px 0 rgba(255,255,255,.03) inset, 0 8px 20px rgba(0,0,0,.25);
+  background:var(--card); border:1px solid #e5e7eb; border-radius:12px;
+  padding:16px; box-shadow:0 1px 0 rgba(0,0,0,.02) inset, 0 8px 20px rgba(0,0,0,.06);
   margin-bottom:24px;
 }
-
-/* Title / legend */
 .title-row{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:10px}
-.title{font-weight:800;margin:0;color:#fff}
-.legend{display:flex;gap:10px;flex-wrap:wrap}
+.title{font-weight:800;margin:0;color:var(--ink-strong)}
 .badge{
-  display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:8px;
-  background:#0b1222;color:var(--ink);font-size:12px;cursor:pointer;border:none;
+  display:inline-flex;align-items:center;gap:8px;padding:6px 12px;border-radius:8px;
+  background:#f1f5f9;color:#0b1222;font-size:12px;cursor:pointer;border:none;
   transition:opacity .18s ease, transform .12s ease, box-shadow .12s ease;
 }
-.badge:hover{opacity:.9; transform:translateY(-1px)}
-.badge.active{box-shadow:0 0 0 2px rgba(255,255,255,.15) inset}
+.badge:hover{opacity:.9;transform:translateY(-1px)}
+.badge[aria-pressed="true"]{box-shadow:0 0 0 2px rgba(2,6,23,.18) inset}
 
-/* Legend swatch (color + dash + marker shape) */
-.legend .badge{gap:8px}
-.legend-swatch{width:42px;height:16px;display:inline-block}
-.legend-line{fill:none;stroke-width:2.6}
-.legend-marker{stroke:#111827;stroke-width:1.4;fill:#fff}
+.chart{position:relative;width:100%;height:min(60vh, 420px);border-radius:12px;border:1px solid #e5e7eb;overflow:hidden}
 
-/* Optional color dot (if used somewhere) */
-.dot{width:10px;height:10px;border-radius:50%}
-
-/* Charts */
-.chart{position:relative;width:100%;height:360px;border-radius:12px;overflow:hidden}
-.axis-label{font-size:11px;fill:#d5dde6;user-select:none}
-
-/* Points visibility controlled by JS */
-.point{opacity:0;transition:opacity .16s ease}
-.point.show{opacity:1}
-.point.faded{opacity:.15}
-
-/* Bands & gridlines show on hover OR click */
-.band,.grid{display:none}
-.detail .band,.detail .grid,
-.hovering .band,.hovering .grid{display:block}
-
-/* Solid AQI blocks with readable labels */
-.band-rect{opacity:.22;pointer-events:none}
-.band-text{
-  font-size:20px;font-weight:900;fill:#fff;opacity:.6;letter-spacing:.5px;
-  paint-order:stroke;stroke:#000;stroke-width:3;stroke-opacity:.38;pointer-events:none;
-  dominant-baseline:middle;
+/* HTML legend styling (shows dash + shape) */
+.html-legend {
+  display:flex; flex-wrap:wrap; gap:8px; margin-top:10px;
 }
-
-/* Compare line colors (hues only — we ALSO encode with dash + markers) */
-.series-1{stroke:#60a5fa}
-.series-2{stroke:#f59e0b}
-.series-3{stroke:#34d399}
-.series-4{stroke:#e879f9}
-
-/* Lines + animation */
-.series{
-  fill:none; stroke-width:2.8;
-  transition:opacity .22s ease, stroke-width .22s ease, filter .22s ease;
+.html-legend .legend-pill{
+  display:inline-flex; align-items:center; gap:8px;
+  padding:6px 10px; border-radius:8px; background:#f1f5f9; color:#0b1222; font-size:12px;
+  cursor:pointer; border:1px solid #e5e7eb;
+  transition:transform .12s ease, box-shadow .12s ease, opacity .12s ease;
 }
-.series.faded{opacity:.25;stroke-width:2}
-.series.emph{opacity:1;stroke-width:3.4}
-.chart:hover .series{filter:drop-shadow(0 1px 0 rgba(255,255,255,.05))}
+.html-legend .legend-pill:hover{ transform: translateY(-1px); }
+.html-legend .legend-pill.active{ box-shadow:0 0 0 2px rgba(2,6,23,.18) inset; }
+.legend-swatch { width:44px; height:16px; display:inline-block; }
+.legend-line { fill:none; stroke-width:2.6; }
+.legend-marker { stroke:#111827; stroke-width:1.4; fill:#fff; }
 
-/* Path “draw” on mount */
-.series.draw{stroke-dasharray:1; stroke-dashoffset:1; animation:draw 900ms cubic-bezier(.22,.61,.36,1) forwards}
-@keyframes draw { to{ stroke-dashoffset:0 } }
+/* Accessibly strong focus */
+:focus-visible{outline:3px solid var(--ring);outline-offset:3px;border-radius:8px}
+/* Enable pinch/gesture zoom to reach the canvas */
+.chart canvas { touch-action: none; }
 
-/* Gridlines */
-.grid-y-50{stroke:rgba(203,213,225,.14);stroke-width:1;stroke-dasharray:3 5}
-.grid-x{stroke:rgba(203,213,225,.08);stroke-width:1}
-.detail .grid-y-50{stroke:rgba(203,213,225,.18)}
-
-/* Leader lines + label fading */
-.label-link{stroke:rgba(255,255,255,.75);stroke-width:1;fill:none;opacity:.95}
-.label-pill.faded,.label-link.faded{opacity:.35}
-
-/* Focus & keyboard visibility */
-:focus-visible{outline:3px solid var(--ring); outline-offset:3px; border-radius:8px}
-
-/* Motion prefs */
-@media (prefers-reduced-motion: reduce){
-  .series,.point,.grid,.band-rect{animation:none !important; transition:none !important}
-}
-/* Explicit on-switch for bands & grid (used by JS) */
-.band.visible, .grid.visible { display: block; }
+/* Gray out non-selected legend pills */
+.html-legend .legend-pill.muted { opacity: .35; }
+/* Keep wheel/pinch/drag events on the canvas (don’t bubble to page scroll) */
+.chart canvas { touch-action: none; overscroll-behavior: contain; }

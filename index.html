@@ -1,27 +1,42 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta http-equiv="X-UA-Compatible" content="IE=edge"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>JustAir • Accessible AQI Charts</title>
-  <link rel="stylesheet" href="styles.css"/>
-  <!-- React (UMD) + Babel for JSX -->
-  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-  <script type="text/babel" data-presets="env,react" src="app.js"></script>
-
+  <meta charset="utf-8" />
+  <title>JustAir • Chart.js</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="styles.css" />
+  <!-- Chart.js (must load before app.js) -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <!-- Zoom plugin (must load before app.js) -->
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.umd.min.js"></script>
 </head>
 <body>
-  <div class="page">
-    <header class="header">
-      <h1>JustAir — Accessible AQI Charts</h1>
-    </header>
-    <main id="root"></main>
-  </div>
+  <main class="page">
+    <section class="card">
+      <div class="title-row">
+        <h2 class="title">Single Monitor — AQI Gradient Line</h2>
+        <div style="display:flex;gap:8px">
+          <button id="single-toggle" class="badge" aria-pressed="false">Toggle AQI Bands</button>
+          <button id="single-reset" class="badge">Reset Zoom</button>
+        </div>
+      </div>
+      <div class="chart"><canvas id="singleChart"></canvas></div>
+    </section>
 
-  <!-- IMPORTANT: Babel compiles JSX with these presets -->
-  <script type="text/babel" data-presets="env,react" src="app.js"></script>
+    <section class="card">
+      <div class="title-row">
+        <h2 class="title">Compare Monitors — Shapes, Dashes, Focus</h2>
+        <div style="display:flex;gap:8px">
+          <button id="compare-toggle" class="badge" aria-pressed="false">Toggle AQI Bands</button>
+          <button id="compare-reset" class="badge">Reset Zoom</button>
+        </div>
+      </div>
+      <div class="chart"><canvas id="compareChart"></canvas></div>
+      <div id="compareLegend" class="html-legend" aria-label="Compare legend" role="group"></div>
+    </section>
+  </main>
+
+  <!-- Load app AFTER the elements above -->
+  <script src="app.js" defer></script>
 </body>
 </html>
