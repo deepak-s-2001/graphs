@@ -1,6 +1,7 @@
-// ---- Zoom plugin: register safely for any UMD name (fixes "can't zoom") ----
-const ZoomPlugin = window.ChartZoom || window['chartjs-plugin-zoom'];
-if (ZoomPlugin) Chart.register(ZoomPlugin);
+// Robustly register zoom plugin for any UMD export shape
+if (window.ChartZoom) {
+  Chart.register(window.ChartZoom);
+}
 
 /* ====== Data & helpers (unchanged) ====== */
 const hours = Array.from({length:25}, (_,i)=>i); // 0..24 inclusive
@@ -124,6 +125,7 @@ const EndLabelsPlugin = {
 
     const {ctx, chartArea, scales:{x, y}} = chart;
     const st = chart.$state || {};
+    ctx.save();
     // Build endpoints (use last defined point in viewport)
     // Build endpoints from the last VISIBLE element (respects zoom)
 const endpoints = chart.data.datasets.map((d, idx) => {
@@ -245,6 +247,7 @@ const color = (typeof d.borderColor === 'function')
   : d.borderColor;
 path.setAttribute('stroke', color);
 
+
 // Resolve dash (dataset borderDash may be array or function)
 let dash = [];
 if (Array.isArray(d.borderDash)) dash = d.borderDash;
@@ -253,7 +256,6 @@ else if (typeof d.borderDash === 'function') {
 }
 if (dash.length) path.setAttribute('stroke-dasharray', dash.join(' '));
 
-svg.appendChild(path);
       if (d.borderDash && d.borderDash.length) path.setAttribute('stroke-dasharray', d.borderDash.join(' '));
       svg.appendChild(path);
 
@@ -281,7 +283,8 @@ svg.appendChild(path);
     });
     // Add "Reset graph" button to clear selection and un-mute others
 const resetBtn = document.createElement('button');
-resetBtn.className = 'legend-pill';
+resetBtn.className = 'legend-pill reset';
+
 resetBtn.type = 'button';
 resetBtn.textContent = 'Reset graph';
 resetBtn.addEventListener('click', ()=>{
@@ -297,9 +300,19 @@ container.appendChild(resetBtn);
 function wireHoverToggle(chart){
   if (!chart.$state) chart.$state = { showBands:false, hovering:false, selectedDataset:null };
   const canvas = chart.canvas;
-  canvas.addEventListener('mouseenter', ()=>{ chart.$state.hovering = true; chart.update('none'); });
-  canvas.addEventListener('mouseleave', ()=>{ chart.$state.hovering = false; chart.update('none'); });
-  canvas.addEventListener('click', ()=>{ chart.$state.showBands = !chart.$state.showBands; chart.update('none'); });
+  canvas.addEventListener('mouseenter', ()=>{
+    chart.$state.hovering = true;
+    if (!chart.$state.isInteracting) chart.update('none');
+  });
+  canvas.addEventListener('mouseleave', ()=>{
+    chart.$state.hovering = false;
+    if (!chart.$state.isInteracting) chart.update('none');
+  });
+  canvas.addEventListener('click', ()=>{
+    if (chart.$state.isInteracting) return; // ignore clicks that end a drag
+    chart.$state.showBands = !chart.$state.showBands;
+    chart.update('none');
+  });
 }
 
 /* ====== Single monitor (curved + hover points + zoom) ====== */
@@ -307,6 +320,7 @@ const singleCfg = {
   type: 'line',
   data: {
     datasets: [{
+      parsing: false,
       label: 'Scotten & W Jefferson',
       data: singleSeries,
       borderWidth: 3,
@@ -336,7 +350,14 @@ const singleCfg = {
     drag:  { enabled: true, backgroundColor: 'rgba(148,163,184,0.15)' },
     mode: 'xy'
   },
-  pan: { enabled: true, modifierKey: 'alt', mode: 'xy' }
+  pan: { enabled: true, modifierKey: null, mode: 'xy' },
+  // ---- NEW: interaction locks ----
+    onZoomStart({chart})  { (chart.$state ||= {}).isInteracting = true; },
+    onZoomComplete({chart}) { (chart.$state ||= {}).isInteracting = false; },
+    onPanStart({chart})   { (chart.$state ||= {}).isInteracting = true; },
+    onPanComplete({chart})  { (chart.$state ||= {}).isInteracting = false; },
+    // Optional: keep users from collapsing axes to nothing
+    limits: { x: { min: 0, max: 24, minRange: 1 }, y: { min: 0, max: 300, minRange: 10 } }
 }
     },
     scales: commonScales(false)
@@ -347,6 +368,7 @@ const singleCfg = {
 /* ====== Compare monitors (fade others on focus + labels + zoom) ====== */
 function buildCompareDatasets(){
   return compareSeries.map((s, i) => ({
+    parsing: false,
     label: s.name,
     data: s.data,
     borderColor: ctx => {
@@ -379,7 +401,7 @@ pointHitRadius: 10,   // easier to “catch” with the cursor
 
 const compareCfg = {
   type: 'line',
-  data: { datasets: buildCompareDatasets() },
+  data: { datasets: buildCompareDatasets(), parsing: false},
   options: {
     responsive: true,
     maintainAspectRatio: false,
@@ -405,7 +427,14 @@ const compareCfg = {
     drag:  { enabled: true, backgroundColor: 'rgba(148,163,184,0.15)' },
     mode: 'xy'
   },
-  pan: { enabled: true, modifierKey: 'alt', mode: 'xy' }
+  pan: { enabled: true, modifierKey: null, mode: 'xy' },
+  // ---- NEW: interaction locks ----
+    onZoomStart({chart})  { (chart.$state ||= {}).isInteracting = true; },
+    onZoomComplete({chart}) { (chart.$state ||= {}).isInteracting = false; },
+    onPanStart({chart})   { (chart.$state ||= {}).isInteracting = true; },
+    onPanComplete({chart})  { (chart.$state ||= {}).isInteracting = false; },
+    // Optional: keep users from collapsing axes to nothing
+    limits: { x: { min: 0, max: 24, minRange: 1 }, y: { min: 0, max: 300, minRange: 10 } }
 }
 
     },
@@ -451,11 +480,6 @@ function toAlpha(hex, a){
 /* ====== Init & wiring (unchanged except resetZoom guards already in your HTML wiring) ====== */
 const singleChart  = new Chart(document.getElementById('singleChart'), singleCfg);
 const compareChart = new Chart(document.getElementById('compareChart'), compareCfg);
-
-// Ensure the wheel event reaches the plugin on Firefox/Windows
-[singleChart.canvas, compareChart.canvas].forEach(cv => {
-  cv.addEventListener('wheel', e => e.preventDefault(), { passive: false });
-});
 
 
 singleChart.$state  = { showBands:false, hovering:false };

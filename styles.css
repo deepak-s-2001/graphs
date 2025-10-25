@@ -43,10 +43,43 @@ body{margin:0;background:var(--bg);color:var(--ink);font-family:ui-sans-serif,sy
 
 /* Accessibly strong focus */
 :focus-visible{outline:3px solid var(--ring);outline-offset:3px;border-radius:8px}
-/* Enable pinch/gesture zoom to reach the canvas */
-.chart canvas { touch-action: none; }
 
 /* Gray out non-selected legend pills */
 .html-legend .legend-pill.muted { opacity: .35; }
 /* Keep wheel/pinch/drag events on the canvas (don’t bubble to page scroll) */
 .chart canvas { touch-action: none; overscroll-behavior: contain; }
+
+/* Brand primary */
+:root { --primary:#0055AA; }
+
+/* Make Reset buttons solid primary with white text */
+
+
+
+/* Selected legend pill: show a primary stroke/border */
+.html-legend .legend-pill.active{
+  border: 2px solid var(--primary);
+  box-shadow: none;
+}
+
+/* (keeps earlier behavior) muted = gray */
+.html-legend .legend-pill.muted{ opacity: .35; }
+
+/* Brand primary */
+:root { --primary: #0055AA; }
+
+/* Legend "Reset graph" button — solid brand with white text */
+.html-legend .legend-pill.reset{
+  background: var(--primary);
+  color: #fff;
+  border: 1px solid #004080;
+}
+.html-legend .legend-pill.reset:hover{ filter: brightness(1.05); }
+.html-legend .legend-pill.reset:focus-visible{
+  outline: 3px solid #003a73;
+  outline-offset: 3px;
+}
+
+/* Optional: ensure the tiny swatch, if any, stays visible on brand bg */
+.html-legend .legend-pill.reset .legend-line{ stroke: #fff; }
+
