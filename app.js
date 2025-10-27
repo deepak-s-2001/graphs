@@ -1,7 +1,8 @@
 // Robustly register zoom plugin for any UMD export shape
-if (window.ChartZoom) {
-  Chart.register(window.ChartZoom);
-}
+// Robustly register chartjs-plugin-zoom for any UMD shape (ChartZoom or ['chartjs-plugin-zoom'], with/without .default)
+const _zoomUMD = window.ChartZoom || window['chartjs-plugin-zoom'];
+const ZoomPlugin = _zoomUMD && (_zoomUMD.default || _zoomUMD);
+if (ZoomPlugin) Chart.register(ZoomPlugin);
 
 /* ====== Data & helpers (unchanged) ====== */
 const hours = Array.from({length:25}, (_,i)=>i); // 0..24 inclusive
@@ -64,11 +65,69 @@ function commonScales(showGrid){
 
 /* ====== Plugins ====== */
 // AQI bands behind data (unchanged)
+// --- Auto-fit Y domain to data that's currently shown (respects selection & avoids fighting zoom) ---
+const YAutoDomainPlugin = {
+  id: 'yAutoDomain',
+  beforeLayout(chart) {
+    const st = chart.$state || (chart.$state = {});
+    // If user has zoomed/panned, don't auto-fit until they reset
+    if (st.userZoomed) return;
+
+    // Collect visible values
+    const ds = chart.data.datasets || [];
+    const sel = st.selectedSet; // Set of selected indices for compare chart; undefined for single
+    const values = [];
+
+    ds.forEach((d, idx) => {
+      // Skip non-selected when a selection exists
+      if (sel && sel.size > 0 && !sel.has(idx)) return;
+
+      // If a dataset is effectively hidden (e.g., width 0), skip
+      // (We check controller meta visibility too)
+      const meta = chart.getDatasetMeta(idx);
+      if (!meta || meta.hidden) return;
+
+      (d.data || []).forEach(p => {
+        const y = (typeof p === 'number') ? p : p?.y;
+        if (typeof y === 'number' && !Number.isNaN(y)) values.push(y);
+      });
+    });
+
+    if (!values.length) return;
+
+    // Compute padded min/max, snapped to 50-AQI ticks, capped to [0, 300]
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+
+    // Snap to 50 boundaries
+    const snapDown = v => Math.floor(v / 50) * 50;
+    const snapUp   = v => Math.ceil(v  / 50) * 50;
+
+    // Lower bound: snap down, but not below 0
+    let yMin = Math.max(0, snapDown(min)); // instead of 0
+    // Upper bound: snap up, but not above 300
+    let yMax = Math.min(300, snapUp(max));
+
+    // Ensure we always have at least one band height (~50) so labels/grids look good
+    if (yMax - yMin < 50) {
+      yMax = Math.min(300, yMin + 50);
+    }
+
+    // Apply to scales without rebuilding the scales object (so zoom plugin can do its job)
+    const sy = chart.options.scales?.y;
+    if (sy) {
+      sy.min = yMin;
+      sy.max = yMax;
+    }
+  }
+};
+
 const BandsPlugin = {
   id: 'aqiBands',
   beforeDatasetsDraw(chart){
     const { ctx, chartArea } = chart;
-    const show = chart.$state?.hovering || chart.$state?.showBands || chart.$state?.selectedDataset!=null;
+    const st = chart.$state || {};
+const show = st.hovering || st.showBands || (st.selectedSet && st.selectedSet.size > 0);
     if (!show) return;
     const {top, bottom, left, right} = chartArea;
     const yScale = chart.scales.y;
@@ -98,7 +157,7 @@ const GridSyncPlugin = {
   id: 'gridSync',
   beforeUpdate(chart) {
     const st = chart.$state || {};
-    const show = st.hovering || st.showBands || st.selectedDataset != null;
+    const show = st.hovering || st.showBands || (st.selectedSet && st.selectedSet.size > 0);
 
     const sx = chart.options.scales.x;
     const sy = chart.options.scales.y;
@@ -120,17 +179,17 @@ const GridSyncPlugin = {
 const EndLabelsPlugin = {
   id: 'endLabels',
   afterDatasetsDraw(chart) {
-    const ds = chart.getDatasetMeta(0)?.data ? chart.data.datasets : [];
-    if (!ds.length) return;
-
+    if (!chart.data?.datasets?.length) return;
     const {ctx, chartArea, scales:{x, y}} = chart;
     const st = chart.$state || {};
     ctx.save();
+    ctx.globalCompositeOperation = 'source-over';
     // Build endpoints (use last defined point in viewport)
     // Build endpoints from the last VISIBLE element (respects zoom)
 const endpoints = chart.data.datasets.map((d, idx) => {
   // skip labels for non-selected when something is selected
-  if (st.selectedDataset != null && idx !== st.selectedDataset) return null;
+  if (st.selectedSet && st.selectedSet.size > 0 && !st.selectedSet.has(idx)) return null;
+
 
   const meta = chart.getDatasetMeta(idx);
   const els = meta.data || [];
@@ -207,6 +266,33 @@ function roundRect(ctx, x, y, w, h, r){
   ctx.arcTo(x,   y,   x+w, y,   rr);
   ctx.closePath();
 }
+function fitYToSelection(chart){
+  const st = chart.$state || {};
+  const sel = st.selectedSet;
+  const ds = chart.data?.datasets || [];
+  const values = [];
+
+  ds.forEach((d, idx) => {
+    if (sel && sel.size > 0 && !sel.has(idx)) return;  // ignore non-selected
+    (d.data || []).forEach(p => {
+      const y = (typeof p === 'number') ? p : p?.y;
+      if (typeof y === 'number' && !Number.isNaN(y)) values.push(y);
+    });
+  });
+  if (!values.length) return;
+
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const snapDown = v => Math.floor(v/50)*50;
+  const snapUp   = v => Math.ceil(v/50)*50;
+
+  let yMin = Math.max(0, snapDown(min));
+  let yMax = Math.min(300, snapUp(max));
+  if (yMax - yMin < 50) yMax = Math.min(300, yMin + 50);
+
+  const sy = chart.options.scales?.y;
+  if (sy){ sy.min = yMin; sy.max = yMax; }
+}
 
 // HTML legend for compare chart (shows dash + marker shape; unchanged)
 const HtmlLegendPlugin = {
@@ -220,17 +306,21 @@ const HtmlLegendPlugin = {
     const ds = chart.data.datasets;
     ds.forEach((d, idx)=>{
       const pill = document.createElement('button');
-      const isActive = (chart.$state?.selectedDataset === idx);
-      const isMuted  = (chart.$state?.selectedDataset != null && !isActive);
-      pill.className = 'legend-pill' + (isActive ? ' active' : '') + (isMuted ? ' muted' : '');
+      const st = chart.$state || (chart.$state = {});
+const sel = st.selectedSet || (st.selectedSet = new Set());
 
-      pill.setAttribute('type','button');
-      pill.setAttribute('aria-pressed', chart.$state?.selectedDataset===idx ? 'true' : 'false');
-      pill.addEventListener('click', ()=>{
-        const st = chart.$state || (chart.$state={});
-        st.selectedDataset = (st.selectedDataset===idx) ? null : idx;
-        chart.update();
-      });
+const isActive = sel.has(idx);
+const isMuted  = sel.size > 0 && !isActive;
+pill.className = 'legend-pill' + (isActive ? ' active' : '') + (isMuted ? ' muted' : '');
+pill.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+
+pill.addEventListener('click', ()=>{
+  if (sel.has(idx)) sel.delete(idx); else sel.add(idx);
+  // re-enable autoscale and apply it immediately
+  chart.$state = { ...(chart.$state||{}), userZoomed:false };
+  fitYToSelection(chart);
+  chart.update();
+});
 
       // swatch (line dash + marker shape)
       const svg = document.createElementNS('http://www.w3.org/2000/svg','svg');
@@ -289,8 +379,11 @@ resetBtn.type = 'button';
 resetBtn.textContent = 'Reset graph';
 resetBtn.addEventListener('click', ()=>{
   const st = chart.$state || (chart.$state = {});
-  st.selectedDataset = null;
-  chart.update();
+st.selectedSet?.clear();
+st.userZoomed = false;
+fitYToSelection(chart);
+chart.update();
+
 });
 container.appendChild(resetBtn);
   }
@@ -298,7 +391,7 @@ container.appendChild(resetBtn);
 
 /* ====== Shared utilities (unchanged) ====== */
 function wireHoverToggle(chart){
-  if (!chart.$state) chart.$state = { showBands:false, hovering:false, selectedDataset:null };
+  chart.$state = { ...(chart.$state || {}), showBands:false, hovering:false };
   const canvas = chart.canvas;
   canvas.addEventListener('mouseenter', ()=>{
     chart.$state.hovering = true;
@@ -347,22 +440,24 @@ const singleCfg = {
   zoom: {
     wheel: { enabled: true, modifierKey: null, speed: 0.1 },
     pinch: { enabled: true },
-    drag:  { enabled: true, backgroundColor: 'rgba(148,163,184,0.15)' },
+    drag:  { enabled: true, backgroundColor: 'rgba(148,163,184,0.15)', threshold: 0 },
     mode: 'xy'
   },
-  pan: { enabled: true, modifierKey: null, mode: 'xy' },
-  // ---- NEW: interaction locks ----
-    onZoomStart({chart})  { (chart.$state ||= {}).isInteracting = true; },
-    onZoomComplete({chart}) { (chart.$state ||= {}).isInteracting = false; },
-    onPanStart({chart})   { (chart.$state ||= {}).isInteracting = true; },
-    onPanComplete({chart})  { (chart.$state ||= {}).isInteracting = false; },
-    // Optional: keep users from collapsing axes to nothing
-    limits: { x: { min: 0, max: 24, minRange: 1 }, y: { min: 0, max: 300, minRange: 10 } }
+  pan: { enabled: true, modifierKey: 'alt', mode: 'xy' },
+
+  // root-level callbacks (correct place)
+  onZoomStart({chart})    { (chart.$state ||= {}).isInteracting = true; },
+  onZoomComplete({chart}) { (chart.$state ||= {}).isInteracting = false; (chart.$state.userZoomed = true); },
+  onPanStart({chart})     { (chart.$state ||= {}).isInteracting = true; },
+  onPanComplete({chart})  { (chart.$state ||= {}).isInteracting = false; (chart.$state.userZoomed = true); },
+
+  // sensible limits
+  limits: { x: { min: 0, max: 24, minRange: 1 }, y: { min: 0, max: 300, minRange: 10 } }
 }
     },
     scales: commonScales(false)
   },
-  plugins: [BandsPlugin, GridSyncPlugin, EndLabelsPlugin]
+  plugins: [BandsPlugin, GridSyncPlugin, EndLabelsPlugin, YAutoDomainPlugin]
 };
 
 /* ====== Compare monitors (fade others on focus + labels + zoom) ====== */
@@ -371,33 +466,86 @@ function buildCompareDatasets(){
     parsing: false,
     label: s.name,
     data: s.data,
-    borderColor: ctx => {
+   borderColor: ctx => {
   const st = ctx.chart.$state || {};
-  const sel = st.selectedDataset;
+  const sel = st.selectedSet;
   const color = s.color;
-  if (sel == null) return color;                       // no selection
-  return (ctx.datasetIndex === sel) ? color : toAlpha(color, 0.35); // fade others
+  if (!sel || sel.size === 0) return color;                         // no selection → all visible
+  return sel.has(ctx.datasetIndex) ? color : toAlpha(color, 0.0);   // hide non-selected
 },
     borderWidth: ctx => {
   const st = ctx.chart.$state || {};
-  return (st.selectedDataset === ctx.datasetIndex) ? 3.6 : 2.2;
+  const sel = st.selectedSet;
+  if (!sel || sel.size === 0) return 2.2;
+  return sel.has(ctx.datasetIndex) ? 3.2 : 0;   // 0 = effectively hidden
 },
 
     borderDash: s.dash,
     spanGaps: true,       // continuous hover line even if a point is missing
 pointHitRadius: 10,   // easier to “catch” with the cursor
     pointStyle: s.shape,           // 'circle' | 'rect' | 'triangle' | 'rectRot'
-    pointRadius: ctx => {
+   pointRadius: ctx => {
   const st = ctx.chart.$state || {};
-  // If any series is selected, ONLY that one shows points
-  if (st.selectedDataset != null) return (ctx.datasetIndex === st.selectedDataset) ? 4 : 0;
+  const sel = st.selectedSet;
+  if (sel && sel.size > 0) return sel.has(ctx.datasetIndex) ? 4 : 0;   // only selected series show points
   // No selection: hover or bands => show points on all; otherwise hide
   return (st.hovering || st.showBands) ? 4 : 0;
 },
-    pointHoverRadius: 5,
+pointHoverRadius: ctx => {
+  const st = ctx.chart.$state || {};
+  const sel = st.selectedSet;
+  if (sel && sel.size > 0) return sel.has(ctx.datasetIndex) ? 5 : 0; // no hover bubble for non-selected
+  return (st.hovering || st.showBands) ? 5 : 0;
+},
+pointHitRadius: ctx => {
+  const st = ctx.chart.$state || {};
+  const sel = st.selectedSet;
+  if (sel && sel.size > 0) return sel.has(ctx.datasetIndex) ? 10 : 0; // don't catch hover on hidden series
+  return (st.hovering || st.showBands) ? 10 : 0;
+},
     tension: 0.35
   }));
 }
+
+// Bands-only reference chart (no datasets), fixed Y = 50..300, X = 0..24
+const bandsOnlyCfg = {
+  type: 'line',
+  data: { datasets: [] }, // no data lines
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: { display: false },
+      tooltip: { enabled: false },
+      zoom: { zoom: { wheel:{enabled:false}, pinch:{enabled:false}, drag:{enabled:false} }, pan:{enabled:false} }
+    },
+    scales: {
+      x: {
+        type: 'linear', min: 0, max: 24,
+        ticks: { callback: v => `${String(v).padStart(2,'0')}:00`, values:[0,4,8,12,16,20,24], color:'#334155' },
+        grid: { color: 'rgba(51,65,85,.10)', borderColor:'#94a3b8', lineWidth:1, borderWidth:1 }
+      },
+      y: {
+  type: 'linear',
+  min: 0,            // ← include full GOOD band 0–50
+  max: 300,
+  ticks: {
+    color:'#334155',
+    stepSize:50,
+    callback: v => (v === 0 ? '0' : v)  // keep labels at 50 intervals; show 0 once
+  },
+  grid: { color: 'rgba(51,65,85,.18)', borderColor:'#94a3b8', lineWidth:1, borderWidth:1, borderDash: [3,5] }
+}
+    }
+  },
+  plugins: [BandsPlugin]  // only the bands, no labels plugin needed
+};
+
+const bandsOnlyChart = new Chart(document.getElementById('bandsOnlyChart'), bandsOnlyCfg);
+// Show bands by default on this one
+bandsOnlyChart.$state = { showBands: true };
+bandsOnlyChart.update();
+
 
 const compareCfg = {
   type: 'line',
@@ -414,27 +562,35 @@ const compareCfg = {
   mode: 'index',
   intersect: false,
   axis: 'x',
-  filter: () => true, // include all datasets even if a series is faded/selected
+  filter: ctx => {
+  const st = ctx.chart.$state || {};
+  const sel = st.selectedSet;
+  return !sel || sel.size === 0 || sel.has(ctx.datasetIndex);
+},
   callbacks: {
     title: items => `${String(items[0].parsed.x).padStart(2,'0')}:00`,
     label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y}`
   }
 },
       zoom: {
+zoom: {
   zoom: {
     wheel: { enabled: true, modifierKey: null, speed: 0.1 },
     pinch: { enabled: true },
-    drag:  { enabled: true, backgroundColor: 'rgba(148,163,184,0.15)' },
+    drag:  { enabled: true, backgroundColor: 'rgba(148,163,184,0.15)', threshold: 0 },
     mode: 'xy'
   },
-  pan: { enabled: true, modifierKey: null, mode: 'xy' },
-  // ---- NEW: interaction locks ----
-    onZoomStart({chart})  { (chart.$state ||= {}).isInteracting = true; },
-    onZoomComplete({chart}) { (chart.$state ||= {}).isInteracting = false; },
-    onPanStart({chart})   { (chart.$state ||= {}).isInteracting = true; },
-    onPanComplete({chart})  { (chart.$state ||= {}).isInteracting = false; },
-    // Optional: keep users from collapsing axes to nothing
-    limits: { x: { min: 0, max: 24, minRange: 1 }, y: { min: 0, max: 300, minRange: 10 } }
+  pan: { enabled: true, modifierKey: 'alt', mode: 'xy' },
+
+  // root-level callbacks (correct place)
+  onZoomStart({chart})    { (chart.$state ||= {}).isInteracting = true; },
+  onZoomComplete({chart}) { (chart.$state ||= {}).isInteracting = false; (chart.$state.userZoomed = true); },
+  onPanStart({chart})     { (chart.$state ||= {}).isInteracting = true; },
+  onPanComplete({chart})  { (chart.$state ||= {}).isInteracting = false; (chart.$state.userZoomed = true); },
+
+  // sensible limits
+  limits: { x: { min: 0, max: 24, minRange: 1 }, y: { min: 0, max: 300, minRange: 10 } }
+}
 }
 
     },
@@ -464,7 +620,7 @@ const compareCfg = {
     },
     scales: commonScales(false)
   },
-  plugins: [BandsPlugin, HtmlLegendPlugin, GridSyncPlugin, EndLabelsPlugin]
+  plugins: [BandsPlugin, HtmlLegendPlugin, GridSyncPlugin, EndLabelsPlugin, YAutoDomainPlugin]
 };
 
 /* small helper to add alpha to hex colors */
@@ -483,7 +639,7 @@ const compareChart = new Chart(document.getElementById('compareChart'), compareC
 
 
 singleChart.$state  = { showBands:false, hovering:false };
-compareChart.$state = { showBands:false, hovering:false, selectedDataset:null };
+compareChart.$state = { showBands:false, hovering:false, selectedSet: new Set() };
 
 wireHoverToggle(singleChart);
 wireHoverToggle(compareChart);
@@ -502,8 +658,16 @@ document.getElementById('compare-toggle').addEventListener('click', (e)=>{
 
 // Reset zoom (guarded)
 document.getElementById('single-reset').addEventListener('click', ()=>{
-  if (typeof singleChart.resetZoom === 'function') singleChart.resetZoom();
+  if (singleChart) {
+    singleChart.$state = { ...(singleChart.$state||{}), userZoomed:false };
+    if (typeof singleChart.resetZoom === 'function') singleChart.resetZoom();
+    singleChart.update();
+  }
 });
 document.getElementById('compare-reset').addEventListener('click', ()=>{
-  if (typeof compareChart.resetZoom === 'function') compareChart.resetZoom();
+  if (compareChart) {
+    compareChart.$state = { ...(compareChart.$state||{}), userZoomed:false };
+    if (typeof compareChart.resetZoom === 'function') compareChart.resetZoom();
+    compareChart.update();
+  }
 });
